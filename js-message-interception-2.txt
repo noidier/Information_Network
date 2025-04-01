@@ -1,0 +1,400 @@
+// message_system.js - Enhanced VirtualNode with message interception
+
+/**
+ * Example usage:
+ * 
+ * // 1. Create a virtual node
+ * const node = new EnhancedVirtualNode();
+ * 
+ * // 2. Register normal file search API
+ * node.registerApi('/search/files', (request) => {
+ *   const query = request.data.query;
+ *   return { results: [`file:${query}_result1`, `file:${query}_result2`] };
+ * });
+ * 
+ * // 3. Register a high-priority web search interceptor
+ * node.registerInterceptor('/search/files', (message) => {
+ *   // Check if this should be handled as a web search
+ *   if (message.metadata.webRequired === 'true') {
+ *     const query = message.data.query;
+ *     return { results: [`web:${query}_result1`, `web:${query}_result2`] };
+ *   }
+ *   return undefined; // Not intercepted
+ * }, 10); // High priority
+ * 
+ * // 4. Testing interception
+ * const fileResults = node.publish('/search/files', { query: 'example' });
+ * // Results in: { results: ['file:example_result1', 'file:example_result2'] }
+ * 
+ * const webResults = node.publish('/search/files', { query: 'example' }, { webRequired: 'true' });
+ * // Results in: { results: ['web:example_result1', 'web:example_result2'] }
+ * 
+ * // 5. Method interception example
+ * class FileSearcher {
+ *   @node.intercept()
+ *   search(query) {
+ *     return [`file:${query}_result1`, `file:${query}_result2`];
+ *   }
+ * }
+ * 
+ * // 6. Register method interceptor
+ * node.registerMethodInterceptor(FileSearcher, 'search', (ctx) => {
+ *   const query = ctx.args[0];
+ *   if (query.startsWith('web:')) {
+ *     return [`web:${query.slice(4)}_result1`, `web:${query.slice(4)}_result2`];
+ *   }
+ *   return undefined; // Not intercepted
+ * }, 10);
+ * 
+ * // 7. Create and use the FileSearcher
+ * const searcher = new FileSearcher();
+ * searcher.search('example'); // ['file:example_result1', 'file:example_result2']
+ * searcher.search('web:example'); // ['web:example_result1', 'web:example_result2']
+ */
+
+class Message {
+  /**
+   * Create a typed message container
+   * @param {string} topic - Message topic
+   * @param {any} data - Message payload
+   * @param {Object} metadata - Additional metadata
+   */
+  constructor(topic, data, metadata = {}) {
+    this.topic = topic;
+    this.data = data;
+    this.metadata = metadata;
+    this.senderId = crypto.randomUUID();
+    this.timestamp = Date.now();
+  }
+}
+
+class MethodContext {
+  /**
+   * Create a context for method interception
+   * @param {Object} instance - Object instance
+   * @param {string} methodName - Method name
+   * @param {Array} args - Method arguments
+   */
+  constructor(instance, methodName, args) {
+    this.instance = instance;
+    this.methodName = methodName;
+    this.args = args;
+    this.timestamp = Date.now();
+  }
+}
+
+class InterceptorEntry {
+  /**
+   * Create a message interceptor entry
+   * @param {Function} handler - Handler function (message) => result | null
+   * @param {number} priority - Priority (higher means first)
+   */
+  constructor(handler, priority) {
+    this.handler = handler;
+    this.priority = priority;
+    this.id = crypto.randomUUID();
+  }
+}
+
+class EnhancedVirtualNode {
+  constructor() {
+    this.nodeId = crypto.randomUUID();
+    this.threadHub = EnhancedThreadHub.getInstance();
+  }
+  
+  /**
+   * Register an API endpoint (from original VirtualNode)
+   * @param {string} path - API path
+   * @param {Function} handler - Handler function
+   * @param {Object} metadata - Additional metadata
+   */
+  registerApi(path, handler, metadata = {}) {
+    this.threadHub.registerApi(path, handler, metadata);
+  }
+  
+  /**
+   * Register a message interceptor
+   * @param {string} topic - Message topic (supports wildcards with *)
+   * @param {Function} handler - Interceptor function (message) => result | null
+   * @param {number} priority - Priority (higher means first)
+   * @returns {string} - Interceptor ID
+   */
+  registerInterceptor(topic, handler, priority = 0) {
+    return this.threadHub.registerInterceptor(topic, handler, priority);
+  }
+  
+  /**
+   * Register a method interceptor
+   * @param {Function} classType - Class constructor
+   * @param {string} methodName - Method name
+   * @param {Function} handler - Interceptor function (context) => result | null
+   * @param {number} priority - Priority (higher means first)
+   * @returns {string} - Interceptor ID
+   */
+  registerMethodInterceptor(classType, methodName, handler, priority = 0) {
+    return this.threadHub.registerMethodInterceptor(classType, methodName, handler, priority);
+  }
+  
+  /**
+   * Publish a message with potential interception
+   * @param {string} topic - Message topic
+   * @param {any} data - Message data
+   * @param {Object} metadata - Additional metadata
+   * @returns {any} - Result from interceptor or null
+   */
+  publish(topic, data, metadata = {}) {
+    const message = new Message(topic, data, metadata);
+    return this.threadHub.publishMessage(message);
+  }
+  
+  /**
+   * Create an interceptable proxy for a method
+   * @param {Object} instance - Object instance
+   * @param {string} methodName - Method name to proxy
+   * @returns {Function} - Proxied method
+   */
+  createProxy(instance, methodName) {
+    return this.threadHub.createMethodProxy(instance, methodName);
+  }
+  
+  /**
+   * Make a class or its methods interceptable
+   * @param {Object} options - Options for interception
+   * @returns {Function} - Decorator function
+   */
+  intercept(options = {}) {
+    return (target, key, descriptor) => {
+      // Method decorator
+      if (descriptor && typeof descriptor.value === 'function') {
+        const originalMethod = descriptor.value;
+        
+        descriptor.value = function(...args) {
+          // Create method context
+          const ctx = new MethodContext(this, key, args);
+          
+          // Try to intercept
+          const result = EnhancedThreadHub.getInstance()
+            .tryInterceptMethod(this.constructor, key, ctx);
+          
+          if (result !== undefined) {
+            return result;
+          }
+          
+          // If not intercepted, call original method
+          return originalMethod.apply(this, args);
+        };
+        
+        return descriptor;
+      }
+      
+      // Class decorator
+      const originalMethods = {};
+      
+      // Get all methods including from prototype chain
+      function collectMethods(obj, methods = {}) {
+        if (obj === null || obj === Object.prototype) return methods;
+        
+        Object.getOwnPropertyNames(obj).forEach(name => {
+          if (name !== 'constructor' && typeof obj[name] === 'function' && !methods[name]) {
+            methods[name] = obj[name];
+          }
+        });
+        
+        return collectMethods(Object.getPrototypeOf(obj), methods);
+      }
+      
+      const methods = collectMethods(target.prototype);
+      
+      // Replace each method with an interceptable version
+      Object.keys(methods).forEach(methodName => {
+        const originalMethod = target.prototype[methodName];
+        originalMethods[methodName] = originalMethod;
+        
+        target.prototype[methodName] = function(...args) {
+          // Create method context
+          const ctx = new MethodContext(this, methodName, args);
+          
+          // Try to intercept
+          const result = EnhancedThreadHub.getInstance()
+            .tryInterceptMethod(target, methodName, ctx);
+          
+          if (result !== undefined) {
+            return result;
+          }
+          
+          // If not intercepted, call original method
+          return originalMethod.apply(this, args);
+        };
+      });
+      
+      return target;
+    };
+  }
+}
+
+class EnhancedThreadHub {
+  // Singleton instance
+  static _instance = null;
+  
+  static getInstance() {
+    if (!EnhancedThreadHub._instance) {
+      EnhancedThreadHub._instance = new EnhancedThreadHub();
+    }
+    return EnhancedThreadHub._instance;
+  }
+  
+  constructor() {
+    // Original ThreadHub attributes
+    this.apis = new Map();
+    this.parentHub = null;
+    
+    // New message system attributes
+    this.messageInterceptors = new Map();  // topic -> [(priority, interceptor)]
+    this.methodInterceptors = new Map();   // className-methodName -> [(priority, interceptor)]
+  }
+  
+  /**
+   * Register an API endpoint (from original ThreadHub)
+   */
+  registerApi(path, handler, metadata) {
+    this.apis.set(path, { handler, metadata });
+  }
+  
+  /**
+   * Register a message interceptor
+   */
+  registerInterceptor(topic, handler, priority = 0) {
+    const interceptor = new InterceptorEntry(handler, priority);
+    
+    if (!this.messageInterceptors.has(topic)) {
+      this.messageInterceptors.set(topic, []);
+    }
+    
+    const interceptors = this.messageInterceptors.get(topic);
+    interceptors.push([priority, interceptor]);
+    // Sort by priority (highest first)
+    interceptors.sort((a, b) => b[0] - a[0]);
+    
+    return interceptor.id;
+  }
+  
+  /**
+   * Register a method interceptor
+   */
+  registerMethodInterceptor(classType, methodName, handler, priority = 0) {
+    const interceptor = new InterceptorEntry(handler, priority);
+    const key = this._getMethodKey(classType, methodName);
+    
+    if (!this.methodInterceptors.has(key)) {
+      this.methodInterceptors.set(key, []);
+    }
+    
+    const interceptors = this.methodInterceptors.get(key);
+    interceptors.push([priority, interceptor]);
+    // Sort by priority (highest first)
+    interceptors.sort((a, b) => b[0] - a[0]);
+    
+    return interceptor.id;
+  }
+  
+  /**
+   * Publish a message with potential interception
+   */
+  publishMessage(message) {
+    // Check for exact match interceptors
+    if (this.messageInterceptors.has(message.topic)) {
+      for (const [_, interceptor] of this.messageInterceptors.get(message.topic)) {
+        const result = interceptor.handler(message);
+        if (result !== undefined) {
+          return result;
+        }
+      }
+    }
+    
+    // Check for wildcard patterns
+    for (const [topic, interceptors] of this.messageInterceptors.entries()) {
+      if (topic.endsWith('*') && message.topic.startsWith(topic.slice(0, -1))) {
+        for (const [_, interceptor] of interceptors) {
+          const result = interceptor.handler(message);
+          if (result !== undefined) {
+            return result;
+          }
+        }
+      }
+    }
+    
+    // If not intercepted and we have a parent, try there
+    if (this.parentHub) {
+      return this.parentHub.publishMessage(message);
+    }
+    
+    return undefined;
+  }
+  
+  /**
+   * Try to intercept a method call
+   */
+  tryInterceptMethod(classType, methodName, context) {
+    // Check for direct class match
+    const key = this._getMethodKey(classType, methodName);
+    if (this.methodInterceptors.has(key)) {
+      for (const [_, interceptor] of this.methodInterceptors.get(key)) {
+        const result = interceptor.handler(context);
+        if (result !== undefined) {
+          return result;
+        }
+      }
+    }
+    
+    // Check for inheritance chain (prototype chain)
+    let proto = Object.getPrototypeOf(classType.prototype);
+    while (proto && proto.constructor) {
+      const parentKey = this._getMethodKey(proto.constructor, methodName);
+      if (this.methodInterceptors.has(parentKey)) {
+        for (const [_, interceptor] of this.methodInterceptors.get(parentKey)) {
+          const result = interceptor.handler(context);
+          if (result !== undefined) {
+            return result;
+          }
+        }
+      }
+      proto = Object.getPrototypeOf(proto);
+    }
+    
+    // If not intercepted and we have a parent hub, try there
+    if (this.parentHub) {
+      return this.parentHub.tryInterceptMethod(classType, methodName, context);
+    }
+    
+    return undefined;
+  }
+  
+  /**
+   * Create a proxy for a method that can be intercepted
+   */
+  createMethodProxy(instance, methodName) {
+    const originalMethod = instance[methodName];
+    const hub = this;
+    
+    return function(...args) {
+      // Create method context
+      const ctx = new MethodContext(instance, methodName, args);
+      
+      // Try to intercept
+      const result = hub.tryInterceptMethod(instance.constructor, methodName, ctx);
+      
+      if (result !== undefined) {
+        return result;
+      }
+      
+      // If not intercepted, call original method
+      return originalMethod.apply(instance, args);
+    };
+  }
+  
+  /**
+   * Get a unique key for a method
+   */
+  _getMethodKey(classType, methodName) {
+    return `${classType.name}-${methodName}`;
+  }

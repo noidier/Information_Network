@@ -1,0 +1,70 @@
+flowchart TD
+    subgraph "Example 1: File/Web Search API with Interception"
+        E1Client["Client Code"]
+        E1FileAPI["File Search API\n/search/files"]
+        E1WebSearch["Web Search Interceptor\n(Priority: 10)"]
+        
+        E1Client -->|"call_api('/search/files', {query: 'cats'}))"| E1Hub[Thread Hub]
+        E1Hub -->|"Check for interceptors\nmetadata.webRequired=true?"| E1WebSearch
+        E1WebSearch -->|"Intercepts and returns\nweb search results"| E1Hub
+        E1Hub -->|"Return web results"| E1Client
+        
+        E1Hub -.->|"Not called (intercepted)"| E1FileAPI
+    end
+    
+    subgraph "Example 2: Method Interception Across Process Boundaries"
+        E2Service1["Service 1\nprocess_data()"]
+        E2Service2["Service 2\nenhanced_processor()"]
+        E2ThreadHub["Thread Hub"]
+        E2ProcessHub["Process Hub"]
+        
+        E2Service1 -->|"Original method call"| E2ThreadHub
+        E2ThreadHub -->|"No local interceptor"| E2ProcessHub
+        E2ProcessHub -->|"Find interceptor\nin another process"| E2Service2
+        E2Service2 -->|"Process data"| E2ProcessHub
+        E2ProcessHub -->|"Return enhanced results"| E2ThreadHub
+        E2ThreadHub -->|"Return to caller"| E2Service1
+    end
+    
+    subgraph "Example 3: API Approximation and Fallbacks"
+        E3Client["Client Code"]
+        E3ThreadHub["Thread Hub"]
+        E3ProcessHub["Process Hub"]
+        E3Original["Target API\n/user/profile\n(not found)"]
+        E3Similar["Similar API\n/users/profile\n(similarity: 0.82)"]
+        
+        E3Client -->|"call_api('/user/profile')"| E3ThreadHub
+        E3ThreadHub -->|"Not found locally"| E3ProcessHub
+        E3ProcessHub -->|"Not found, search for similar"| E3ProcessHub
+        E3ProcessHub -->|"Found similar API"| E3Similar
+        E3Similar -->|"Process with note about\napproximation"| E3ProcessHub
+        E3ProcessHub -->|"Return approximated results"| E3ThreadHub
+        E3ThreadHub -->|"Return to caller with\napproximation metadata"| E3Client
+    end
+    
+    subgraph "Example 4: Cross-Thread Message Publishing"
+        E4Thread1["Thread 1\nPublisher"]
+        E4Thread2["Thread 2\nSubscriber (Priority: 10)"]
+        E4Thread3["Thread 3\nSubscriber (Priority: 5)"]
+        E4ThreadHub1["Thread 1 Hub"]
+        E4ProcessHub["Process Hub"]
+        E4ThreadHub2["Thread 2 Hub"]
+        E4ThreadHub3["Thread 3 Hub"]
+        
+        E4Thread1 -->|"publish('data/update', payload)"| E4ThreadHub1
+        E4ThreadHub1 -->|"No local subscribers"| E4ProcessHub
+        E4ProcessHub -->|"Find subscribers"| E4ProcessHub
+        E4ProcessHub -->|"Notify highest priority first"| E4ThreadHub2
+        E4ThreadHub2 -->|"Deliver to subscriber"| E4Thread2
+        E4Thread2 -->|"Process and return result"| E4ThreadHub2
+        E4ThreadHub2 -->|"Return result"| E4ProcessHub
+        E4ProcessHub -->|"Return to publisher"| E4ThreadHub1
+        E4ThreadHub1 -->|"Return to publisher"| E4Thread1
+        
+        E4ProcessHub -.->|"Not notified (handled by\nhigher priority)"| E4ThreadHub3
+    end
+    
+    style E1WebSearch fill:#f96,stroke:#333,stroke-width:2px
+    style E2Service2 fill:#f96,stroke:#333,stroke-width:2px
+    style E3Similar fill:#9cf,stroke:#333,stroke-width:2px
+    style E4Thread2 fill:#f96,stroke:#333,stroke-width:2px

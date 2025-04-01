@@ -1,0 +1,42 @@
+flowchart TD
+    subgraph "Thread Level Intercept"
+        Client["Client Code"]
+        OriginalAPI["Original API\n/search/files"]
+        Interceptor["High Priority Interceptor\n/search/web"]
+        Hub["Thread Hub"]
+        
+        Client -->|1. Call search API| Hub
+        Hub -->|2. Check interceptors| Hub
+        Hub -->|3. Invoke interceptor| Interceptor
+        Interceptor -->|4. Process request| Interceptor
+        Interceptor -->|5. Return results| Hub
+        Hub -->|6. Return to client| Client
+        
+        OriginalAPI -.->|Not called due to interception| OriginalAPI
+    end
+    
+    subgraph "Message System Components"
+        MessageBroker["Message Broker"]
+        Subscriber1["Subscriber\n(Priority: 10)"]
+        Subscriber2["Subscriber\n(Priority: 5)"]
+        Subscriber3["Subscriber\n(Priority: 1)"]
+        
+        MessageBroker -->|Notify by priority| Subscriber1
+        MessageBroker -->|Notify if not handled| Subscriber2
+        MessageBroker -->|Notify if not handled| Subscriber3
+    end
+    
+    subgraph "Method Interception"
+        Method["Original Method\nsearch_files()"]
+        Proxy["Method Proxy"]
+        Interceptor2["Method Interceptor\nsearch_web()"]
+        
+        Method -->|Wrapped by| Proxy
+        Proxy -->|Check intercept rules| Proxy
+        Proxy -->|If intercepted| Interceptor2
+        Proxy -.->|If not intercepted| Method
+    end
+    
+    style Interceptor fill:#f96,stroke:#333,stroke-width:2px
+    style Interceptor2 fill:#f96,stroke:#333,stroke-width:2px
+    style Proxy fill:#9cf,stroke:#333,stroke-width:1px
