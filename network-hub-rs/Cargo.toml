@@ -7,7 +7,7 @@ description = "Secure, distributed hub-and-spoke communication system with encry
 
 [dependencies]
 uuid = { version = "1.4", features = ["v4", "serde"] }
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["full", "test-util"] }
 hyper = { version = "0.14", features = ["full"] }
 hyper-tls = "0.5"
 rustls = "0.21"

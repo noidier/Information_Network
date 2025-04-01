@@ -164,6 +164,14 @@ impl Hub {
         self.interceptors.register(topic, handler, priority)
     }
     
+    /// Register an API interceptor for a specific path
+    pub fn register_api_interceptor<F>(&self, path: &str, handler: F, priority: i32) -> String
+    where
+        F: Fn(&ApiRequest) -> Option<ApiResponse> + Send + Sync + 'static,
+    {
+        self.interceptors.register_api_interceptor(path, handler, priority)
+    }
+    
     /// Subscribe to messages matching a pattern
     pub fn subscribe<F>(&self, pattern: &str, callback: F, priority: i32) -> String
     where

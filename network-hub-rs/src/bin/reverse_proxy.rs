@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
-use clap::{Command, Arg, ArgAction, ArgGroup};
+use clap::{Command, Arg, ArgAction};
 
 use network_hub::{Hub, HubScope, HttpReverseProxy, TlsConfig};
 
@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .short('b')
                 .long("bind")
                 .help("Address to bind to")
-                .default_value("127.0.0.1:8443")
+                .default_value("127.0.0.1:8080")
                 .action(ArgAction::Set),
         )
         .arg(
@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .short('c')
                 .long("cert")
                 .help("Path to TLS certificate")
-                .required(true)
+                .default_value("certs/cert.pem")
                 .action(ArgAction::Set),
         )
         .arg(
@@ -31,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .short('k')
                 .long("key")
                 .help("Path to TLS key")
-                .required(true)
+                .default_value("certs/key.pem")
                 .action(ArgAction::Set),
         )
         .arg(
@@ -64,7 +64,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hub = Hub::initialize(HubScope::Network);
     println!("Hub initialized with ID: {} and scope: {:?}", hub.id, hub.scope);
 
-    // Configure TLS
+    // Configure TLS - Note: This is a placeholder implementation
+    println!("\n==============================================================");
+    println!("WARNING: This is using a PLACEHOLDER TLS implementation!");
+    println!("In a real application, you would need proper TLS setup.");
+    println!("This proxy will accept plain HTTP connections on {}", bind_addr);
+    println!("==============================================================\n");
+
     let tls_config = TlsConfig {
         cert_path: cert_path.clone(),
         key_path: key_path.clone(),
@@ -82,6 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for route_str in routes {
             if let Some((path, target)) = route_str.split_once('=') {
                 proxy.add_route(path, target);
+                println!("Added route: {} -> {}", path, target);
             } else {
                 eprintln!("Invalid route format: {}", route_str);
                 eprintln!("Expected format: /path=https://target.example.com");
@@ -89,10 +96,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    println!("\nConfigured routes:");
+    println!("/ -> https://example.com (default)");
+    
     // Start the proxy
-    println!("Starting reverse proxy on {}", bind_addr);
-    println!("Using TLS certificate: {}", cert_path);
-    println!("Press Ctrl+C to exit");
+    println!("\nStarting reverse proxy on {}", bind_addr);
+    println!("Using TLS certificate (placeholder): {}", cert_path);
+    println!("Using TLS key (placeholder): {}", key_path);
+    println!("\nPress Ctrl+C to exit");
     
     proxy.start()?;
 
