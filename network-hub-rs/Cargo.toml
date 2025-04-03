@@ -35,3 +35,11 @@ path = "src/bin/network_hub.rs"
 [[bin]]
 name = "reverse-proxy"
 path = "src/bin/reverse_proxy.rs"
+
+[[bin]]
+name = "hub-demo"
+path = "src/bin/hub_demo.rs"
+
+[[bin]]
+name = "thread-hub-demo"
+path = "src/bin/thread_hub_demo.rs"
