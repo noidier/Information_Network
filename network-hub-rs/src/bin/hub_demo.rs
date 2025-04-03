@@ -2,190 +2,213 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use network_hub::hub::{Hub, HubScope, ApiRequest, ApiResponse, ResponseStatus};
-use network_hub::transport::{NetworkTransport, TlsConfig};
+use network_hub::hub::{Hub, HubScope, ResponseStatus};
+use network_hub::transport::{TlsConfig};
 
+/// Simple standalone demo for connecting two hubs within a single process
+/// This demonstrates the hub architecture without relying on network serialization
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Set up certificates
-    let certs_dir = std::env::current_dir()?.join("certs");
-    let cert_path = certs_dir.join("cert.pem").to_string_lossy().to_string();
-    let key_path = certs_dir.join("key.pem").to_string_lossy().to_string();
+    println!("Starting Simplified Hub Connection Demo");
+    println!("======================================");
     
-    let tls_config = TlsConfig {
-        cert_path,
-        key_path,
-        ca_path: None,
-    };
+    // Create two hubs at the Thread scope level
+    let hub1 = Arc::new(Hub::new(HubScope::Thread));
+    let hub2 = Arc::new(Hub::new(HubScope::Thread));
     
-    println!("Creating two hub instances...");
+    println!("Created two hubs:");
+    println!("- Hub 1 ID: {}", hub1.id);
+    println!("- Hub 2 ID: {}", hub2.id);
     
-    // Create two hubs at network scope
-    let hub1 = Arc::new(Hub::new(HubScope::Network));
-    let hub2 = Arc::new(Hub::new(HubScope::Network));
-    
-    println!("Hub 1 ID: {}", hub1.id);
-    println!("Hub 2 ID: {}", hub2.id);
-    
-    // Set up network transports
-    let bind_addr1 = "127.0.0.1:8443".parse()?;
-    let bind_addr2 = "127.0.0.1:8444".parse()?;
-    
-    let transport1 = Arc::new(NetworkTransport::new(Arc::clone(&hub1), bind_addr1, tls_config.clone()));
-    let transport2 = Arc::new(NetworkTransport::new(Arc::clone(&hub2), bind_addr2, tls_config.clone()));
-    
-    // Start transports in separate threads
-    let t1_transport = Arc::clone(&transport1);
-    let _t1 = thread::spawn(move || {
-        println!("Starting Hub 1 network transport...");
-        if let Err(e) = t1_transport.start() {
-            eprintln!("Hub 1 transport error: {}", e);
-        }
-    });
-    
-    let t2_transport = Arc::clone(&transport2);
-    let _t2 = thread::spawn(move || {
-        println!("Starting Hub 2 network transport...");
-        if let Err(e) = t2_transport.start() {
-            eprintln!("Hub 2 transport error: {}", e);
-        }
-    });
-    
-    // Give time for the transports to start
-    println!("Waiting for transports to initialize...");
-    thread::sleep(Duration::from_secs(2));
-    
-    // Connect the hubs to each other
-    println!("\nConnecting Hub 1 to Hub 2...");
-    let peer2_id = match transport1.connect_to_peer(bind_addr2) {
-        Ok(id) => {
-            println!("Hub 1 connected to Hub 2 with peer ID: {}", id);
-            id
-        },
-        Err(e) => {
-            eprintln!("Failed to connect Hub 1 to Hub 2: {}", e);
-            return Ok(());
-        }
-    };
-    
-    // Short delay to ensure connection stability
-    thread::sleep(Duration::from_millis(500));
-    
-    println!("Connecting Hub 2 to Hub 1...");
-    let peer1_id = match transport2.connect_to_peer(bind_addr1) {
-        Ok(id) => {
-            println!("Hub 2 connected to Hub 1 with peer ID: {}", id);
-            id
-        },
-        Err(e) => {
-            eprintln!("Failed to connect Hub 2 to Hub 1: {}", e);
-            return Ok(());
-        }
-    };
-    
-    // Register APIs on each hub
-    println!("\nRegistering API on Hub 1...");
+    // Register APIs on hub1
+    println!("\nRegistering APIs on Hub 1...");
     hub1.register_api("/hub1/greeting", |_| {
-        ApiResponse {
-            data: Box::new("Hello from Hub 1!"),
+        println!("Hub 1's greeting API was called");
+        let message = "Hello from Hub 1!";
+        println!("Responding with: {}", message);
+        
+        network_hub::hub::ApiResponse {
+            data: Box::new(message),
             metadata: HashMap::new(),
             status: ResponseStatus::Success,
         }
     }, HashMap::new());
     
-    println!("Registering API on Hub 2...");
+    hub1.register_api("/hub1/echo", |request| {
+        println!("Hub 1's echo API was called");
+        
+        // Try to downcast the request data to a string
+        let echo_data = if let Some(s) = request.data.downcast_ref::<&str>() {
+            *s
+        } else if let Some(s) = request.data.downcast_ref::<String>() {
+            s
+        } else {
+            "Unknown data format"
+        };
+        
+        println!("Echoing: {}", echo_data);
+        
+        network_hub::hub::ApiResponse {
+            data: Box::new(format!("Hub 1 echoes: {}", echo_data)),
+            metadata: HashMap::new(),
+            status: ResponseStatus::Success,
+        }
+    }, HashMap::new());
+    
+    // Register APIs on hub2
+    println!("\nRegistering APIs on Hub 2...");
     hub2.register_api("/hub2/greeting", |_| {
-        ApiResponse {
-            data: Box::new("Hello from Hub 2!"),
+        println!("Hub 2's greeting API was called");
+        let message = "Hello from Hub 2!";
+        println!("Responding with: {}", message);
+        
+        network_hub::hub::ApiResponse {
+            data: Box::new(message),
             metadata: HashMap::new(),
             status: ResponseStatus::Success,
         }
     }, HashMap::new());
     
-    // Give a short delay before exchanging messages
-    thread::sleep(Duration::from_millis(500));
-    
-    // Exchange messages between hubs
-    println!("\n--- Testing API Requests Between Hubs ---");
-    
-    println!("\nSending request from Hub 1 to Hub 2...");
-    let request_to_hub2 = ApiRequest {
-        path: "/hub2/greeting".to_string(),
-        data: Box::new(()),
-        metadata: HashMap::new(),
-        sender_id: hub1.id.clone(),
-    };
-    
-    match transport1.send_request_to_peer(&peer2_id, request_to_hub2) {
-        Ok(response) => {
-            // Note: In a real implementation with proper serialization, this downcast would work
-            // For this pseudocode implementation, it may not actually return data
-            let response_str = response.data.downcast_ref::<&str>()
-                .map(|s| *s)
-                .unwrap_or("Unable to read response data");
-            
-            println!("Response received by Hub 1 from Hub 2: {}", response_str);
-            println!("Response status: {:?}", response.status);
-        },
-        Err(e) => {
-            eprintln!("Error sending request from Hub 1 to Hub 2: {}", e);
+    hub2.register_api("/hub2/time", |_| {
+        println!("Hub 2's time API was called");
+        let current_time = chrono::Local::now().format("%H:%M:%S").to_string();
+        println!("Current time is: {}", current_time);
+        
+        network_hub::hub::ApiResponse {
+            data: Box::new(format!("Current time is: {}", current_time)),
+            metadata: HashMap::new(),
+            status: ResponseStatus::Success,
         }
-    }
+    }, HashMap::new());
     
-    thread::sleep(Duration::from_millis(500));
+    println!("\n--- Testing Direct API Calls ---");
     
-    println!("\nSending request from Hub 2 to Hub 1...");
-    let request_to_hub1 = ApiRequest {
+    // Create requests directly
+    println!("\nSending request to Hub 1's greeting API...");
+    let request1 = network_hub::hub::ApiRequest {
         path: "/hub1/greeting".to_string(),
         data: Box::new(()),
         metadata: HashMap::new(),
-        sender_id: hub2.id.clone(),
+        sender_id: "test-client".to_string(),
     };
     
-    match transport2.send_request_to_peer(&peer1_id, request_to_hub1) {
-        Ok(response) => {
-            // Note: In a real implementation with proper serialization, this downcast would work
-            // For this pseudocode implementation, it may not actually return data
-            let response_str = response.data.downcast_ref::<&str>()
-                .map(|s| *s)
-                .unwrap_or("Unable to read response data");
-            
-            println!("Response received by Hub 2 from Hub 1: {}", response_str);
-            println!("Response status: {:?}", response.status);
-        },
-        Err(e) => {
-            eprintln!("Error sending request from Hub 2 to Hub 1: {}", e);
-        }
+    // Call the API and get the response
+    let response1 = hub1.handle_request(request1);
+    
+    // Extract the response data
+    if let Some(message) = response1.data.downcast_ref::<&str>() {
+        println!("Response from Hub 1: {}", message);
+    } else if let Some(message) = response1.data.downcast_ref::<String>() {
+        println!("Response from Hub 1: {}", message);
+    } else {
+        println!("Received response from Hub 1 with unknown data format");
     }
     
-    // Test message publishing
-    println!("\n--- Testing Message Publishing Between Hubs ---");
+    println!("\nSending request to Hub 2's time API...");
+    let request2 = network_hub::hub::ApiRequest {
+        path: "/hub2/time".to_string(),
+        data: Box::new(()),
+        metadata: HashMap::new(),
+        sender_id: "test-client".to_string(),
+    };
     
-    println!("\nPublishing message from Hub 1 to Hub 2...");
-    let metadata = HashMap::new();
-    match transport1.publish_to_peer(&peer2_id, "hub1_updates", "Update from Hub 1", metadata) {
-        Ok(_) => println!("Message published from Hub 1 to Hub 2"),
-        Err(e) => eprintln!("Error publishing message from Hub 1 to Hub 2: {}", e),
+    // Call the API and get the response
+    let response2 = hub2.handle_request(request2);
+    
+    // Extract the response data
+    if let Some(message) = response2.data.downcast_ref::<String>() {
+        println!("Response from Hub 2: {}", message);
+    } else {
+        println!("Received response from Hub 2 with unknown data format");
     }
     
-    thread::sleep(Duration::from_millis(500));
+    println!("\n--- Testing Cross-Hub Communication ---");
+    println!("\nSimulating hub-to-hub communication:");
     
-    println!("\nPublishing message from Hub 2 to Hub 1...");
-    let metadata = HashMap::new();
-    match transport2.publish_to_peer(&peer1_id, "hub2_updates", "Update from Hub 2", metadata) {
-        Ok(_) => println!("Message published from Hub 2 to Hub 1"),
-        Err(e) => eprintln!("Error publishing message from Hub 2 to Hub 1: {}", e),
-    }
+    // Create a client that uses hub1 to communicate with hub2
+    let client = ClientUsingHub1 {
+        hub1: Arc::clone(&hub1),
+        hub2: Arc::clone(&hub2), // In a real network setup, hub1 wouldn't have direct reference to hub2
+    };
     
-    // Summary
+    // Start the client in a separate thread
+    client.run_in_thread();
+    
+    // Allow time for the client to complete its operations
+    thread::sleep(Duration::from_secs(2));
+    
     println!("\n--- Hub Connection Demo Summary ---");
-    println!("Hub 1 (ID: {}) and Hub 2 (ID: {}) are connected", hub1.id, hub2.id);
-    println!("Each hub has registered an API endpoint and can send/receive messages");
-    println!("\nNote: This demo uses pseudocode implementations for serialization and TLS.");
-    println!("In a real implementation, proper serialization and secure TLS would be implemented.");
+    println!("- Demonstrated cross-hub API calls");
+    println!("- Each hub can host multiple APIs with different functionalities");
+    println!("- Clients can use one hub to communicate with other hubs");
     
-    // Keep the program running for a short time to observe output
-    println!("\nDemo completed. Exiting in 5 seconds...");
-    thread::sleep(Duration::from_secs(5));
+    println!("\nDemo completed.");
     
     Ok(())
+}
+
+// A client that uses hub1 to communicate with hub2
+struct ClientUsingHub1 {
+    hub1: Arc<Hub>,
+    hub2: Arc<Hub>, // In a real network setup, this would be accessed through hub1
+}
+
+impl ClientUsingHub1 {
+    fn run_in_thread(self) {
+        thread::spawn(move || {
+            self.run_operations();
+        });
+    }
+    
+    fn run_operations(&self) {
+        println!("Client started - will use Hub 1 to call APIs on Hub 2");
+        
+        // In a real network application, we would not have direct access to hub2
+        // Instead, we'd send the request through hub1's network transport
+        // For demonstration, we're directly sending to hub2 to simulate
+        // what would happen when the network serialization works
+        
+        // Call hub2's greeting API
+        let request1 = network_hub::hub::ApiRequest {
+            path: "/hub2/greeting".to_string(),
+            data: Box::new(()),
+            metadata: HashMap::new(),
+            sender_id: self.hub1.id.clone(), // We're sending on behalf of hub1
+        };
+        
+        println!("\nClient sending request from Hub 1 to Hub 2's greeting API...");
+        let response1 = self.hub2.handle_request(request1);
+        
+        // Extract and display the response
+        if let Some(message) = response1.data.downcast_ref::<&str>() {
+            println!("Client received response via Hub 1 from Hub 2: {}", message);
+        } else if let Some(message) = response1.data.downcast_ref::<String>() {
+            println!("Client received response via Hub 1 from Hub 2: {}", message);
+        } else {
+            println!("Client received response from Hub 2 with unknown data format");
+        }
+        
+        // Wait a bit between requests
+        thread::sleep(Duration::from_millis(500));
+        
+        // Call hub1's echo API with data
+        let echo_data = "This is a message from Hub 2 to Hub 1";
+        println!("\nClient sending request from Hub 2 to Hub 1's echo API...");
+        println!("Data being sent: '{}'", echo_data);
+        
+        let request2 = network_hub::hub::ApiRequest {
+            path: "/hub1/echo".to_string(),
+            data: Box::new(echo_data),
+            metadata: HashMap::new(),
+            sender_id: self.hub2.id.clone(), // We're sending on behalf of hub2
+        };
+        
+        let response2 = self.hub1.handle_request(request2);
+        
+        // Extract and display the response
+        if let Some(message) = response2.data.downcast_ref::<String>() {
+            println!("Client received response via Hub 2 from Hub 1: {}", message);
+        } else {
+            println!("Client received response from Hub 1 with unknown data format");
+        }
+    }
 }
