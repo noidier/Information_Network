@@ -1,4 +1,5 @@
 # Information Network Hub System
+## Created with Claude Code
 
 This document provides comprehensive instructions for using the Information Network Hub system, including the Rust core hub, Python and JavaScript clients, and the shallow hub implementations.
 
@@ -115,7 +116,7 @@ from network_hub_python_client import create_node
 
 # Create a node and connect to a hub
 node = create_node(
-    host="localhost", 
+    host="localhost",
     port=8443,
     cert_path="certs/client.pem",
     key_path="certs/client_key.pem",
@@ -328,7 +329,7 @@ async function main() {
     port: 8443
   });
   await node.connect();
-  
+
   // Register an API for calculator functionality
   await node.registerApi('/calculator/multiply', (request) => {
     try {
@@ -348,23 +349,23 @@ async function main() {
       );
     }
   });
-  
+
   // Call the API
   const response = await node.callApi('/calculator/multiply', { a: 5, b: 3 });
   console.log(`Result: ${response.data.result}`);  // Output: Result: 15
-  
+
   // Subscribe to calculator events
   await node.subscribe('calculator/events/*', (message) => {
     console.log(`Calculator event: ${message.topic} -`, message.data);
   });
-  
+
   // Publish a calculation event
   await node.publish('calculator/events/multiplication', {
     operation: 'multiply',
     operands: [5, 3],
     result: 15
   });
-  
+
   // Disconnect when done
   node.disconnect();
 }
@@ -427,7 +428,7 @@ async function main() {
   const hub = createShallowHub();
   const node1 = createNode(hub, 'service1');
   const node2 = createNode(hub, 'client1');
-  
+
   // Register a data processing API on node1
   await node1.registerApi('/service1/process', (request) => {
     const data = request.data;
@@ -439,22 +440,22 @@ async function main() {
       ResponseStatus.SUCCESS
     );
   });
-  
+
   // Call the API from node2
   const response = await node2.callApi('/service1/process', 'hello world');
   console.log(`Processed data: ${response.data}`);  // Output: Processed data: HELLO WORLD
-  
+
   // Set up a subscription for processed data
   await node2.subscribe('service1/data/processed', (message) => {
     console.log('Data processed notification:', message.data);
   });
-  
+
   // Publish a notification
   await node1.publish('service1/data/processed', {
     original: 'hello world',
     processed: 'HELLO WORLD'
   });
-  
+
   // Clean up
   node1.disconnect();
   node2.disconnect();
