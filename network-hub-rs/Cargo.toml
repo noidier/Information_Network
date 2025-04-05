@@ -2,8 +2,13 @@
 name = "network-hub-rs"
 version = "0.1.0"
 edition = "2021"
-authors = ["Anthropic Claude"]
+authors = ["Anthropic Claude", "Nathaniel Blair"]
 description = "Secure, distributed hub-and-spoke communication system with encrypted messaging"
+license = "UNLICENSE"
+repository = "https://github.com/YOURNAME/network-hub-rs"
+readme = "README.md"
+keywords = ["networking", "messaging", "hub", "communication", "distributed"]
+categories = ["network-programming", "asynchronous"]
 
 [dependencies]
 uuid = { version = "1.4", features = ["v4", "serde"] }
@@ -24,6 +29,12 @@ dashmap = "5.4"
 futures = "0.3"
 async-trait = "0.1"
 chrono = "0.4"
+lazy_static = "1.4"
+url = "2.3"
+
+[dev-dependencies]
+tempfile = "3.6"
+criterion = "0.5"
 
 [lib]
 name = "network_hub"
@@ -44,3 +55,36 @@ path = "src/bin/hub_demo.rs"
 [[bin]]
 name = "thread-hub-demo"
 path = "src/bin/thread_hub_demo.rs"
+
+[[example]]
+name = "distributed_hubs"
+path = "examples/distributed_hubs.rs"
+
+[[example]]
+name = "timeout_handling"
+path = "examples/timeout_handling.rs"
+
+[[example]]
+name = "cross_network_communication"
+path = "examples/cross_network_communication.rs"
+
+[features]
+default = ["tls"]
+tls = []
+no-tls = []
+metrics = []
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "unwind"
+debug = false
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.test]
+opt-level = 0
+debug = true

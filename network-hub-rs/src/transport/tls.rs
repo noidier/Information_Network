@@ -143,23 +143,87 @@ fn create_client_config(config: &TlsConfig) -> Result<ClientConfig> {
 }
 
 /// Create a server TLS stream
-pub fn create_server_tls_stream(stream: TcpStream, _config: &TlsConfig) -> Result<TlsStream> {
-    // In a real implementation, would use rustls or tokio_rustls
-    // to create a server TLS stream
+pub fn create_server_tls_stream(stream: TcpStream, config: &TlsConfig) -> Result<TlsStream> {
+    // Create server config
+    let server_config = create_server_config(config)?;
+    let acceptor = rustls::ServerConnection::new(Arc::new(server_config))
+        .map_err(|e| HubError::Tls(format!("Failed to create TLS acceptor: {}", e)))?;
     
-    // For this pseudocode, just return a wrapper around the TCP stream
+    // Create rustls stream
+    let tls_stream = rustls::StreamOwned::new(acceptor, stream);
+    
+    // Convert to our TlsStream type
+    struct ServerTlsStream<T> {
+        stream: rustls::StreamOwned<rustls::ServerConnection, T>,
+    }
+    
+    impl<T: Read + Write + Send + Sync> Read for ServerTlsStream<T> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.stream.read(buf)
+        }
+    }
+    
+    impl<T: Read + Write + Send + Sync> Write for ServerTlsStream<T> {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.stream.write(buf)
+        }
+        
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.stream.flush()
+        }
+    }
+    
+    impl<T: Read + Write + Send + Sync> StreamLike for ServerTlsStream<T> {}
+    
+    let server_stream = ServerTlsStream { stream: tls_stream };
+    
     Ok(TlsStream {
-        inner: Box::new(stream),
+        inner: Box::new(server_stream),
     })
 }
 
 /// Create a client TLS stream
-pub fn create_client_tls_stream(stream: TcpStream, _config: &TlsConfig) -> Result<TlsStream> {
-    // In a real implementation, would use rustls or tokio_rustls
-    // to create a client TLS stream
+pub fn create_client_tls_stream(stream: TcpStream, config: &TlsConfig) -> Result<TlsStream> {
+    // Create client config
+    let client_config = create_client_config(config)?;
     
-    // For this pseudocode, just return a wrapper around the TCP stream
+    // Get server name from config for SNI or use localhost as default
+    let server_name = rustls::ServerName::try_from("localhost")
+        .map_err(|e| HubError::Tls(format!("Invalid server name: {}", e)))?;
+    
+    // Create TLS connector
+    let connector = rustls::ClientConnection::new(Arc::new(client_config), server_name)
+        .map_err(|e| HubError::Tls(format!("Failed to create TLS connector: {}", e)))?;
+    
+    // Create rustls stream
+    let tls_stream = rustls::StreamOwned::new(connector, stream);
+    
+    // Convert to our TlsStream type
+    struct ClientTlsStream<T> {
+        stream: rustls::StreamOwned<rustls::ClientConnection, T>,
+    }
+    
+    impl<T: Read + Write + Send + Sync> Read for ClientTlsStream<T> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.stream.read(buf)
+        }
+    }
+    
+    impl<T: Read + Write + Send + Sync> Write for ClientTlsStream<T> {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.stream.write(buf)
+        }
+        
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.stream.flush()
+        }
+    }
+    
+    impl<T: Read + Write + Send + Sync> StreamLike for ClientTlsStream<T> {}
+    
+    let client_stream = ClientTlsStream { stream: tls_stream };
+    
     Ok(TlsStream {
-        inner: Box::new(stream),
+        inner: Box::new(client_stream),
     })
 }

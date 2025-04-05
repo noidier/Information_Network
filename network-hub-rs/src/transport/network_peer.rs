@@ -14,9 +14,20 @@ pub struct NetworkPeer {
     /// Peer address
     pub address: SocketAddr,
     /// TLS stream for communication
-    stream: Mutex<TlsStream>,
+    stream: Arc<Mutex<TlsStream>>,
     /// Last seen timestamp
     pub last_seen: u64,
+}
+
+impl Clone for NetworkPeer {
+    fn clone(&self) -> Self {
+        NetworkPeer {
+            id: self.id.clone(),
+            address: self.address,
+            stream: Arc::clone(&self.stream),
+            last_seen: self.last_seen,
+        }
+    }
 }
 
 impl NetworkPeer {
@@ -25,7 +36,7 @@ impl NetworkPeer {
         NetworkPeer {
             id,
             address,
-            stream: Mutex::new(stream),
+            stream: Arc::new(Mutex::new(stream)),
             last_seen: 0,
         }
     }

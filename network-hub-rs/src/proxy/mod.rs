@@ -176,14 +176,9 @@ impl HttpReverseProxy {
             
             if let Some(target) = target {
                 println!("Found target: {}", target);
-                // In a real implementation, would forward the request to the target
-                return ApiResponse {
-                    data: Box::new(format!("Proxied to {}", target)),
-                    metadata: HashMap::from([
-                        ("content-type".to_string(), "text/plain".to_string()),
-                    ]),
-                    status: ResponseStatus::Success,
-                };
+                
+                // Forward the request to the target
+                return self.forward_request(target, &actual_path, request);
             }
             
             println!("No proxy target found for {}", actual_path);
@@ -333,5 +328,257 @@ impl HttpReverseProxy {
         let mut map = self.route_map.write().unwrap();
         map.insert(path.to_string(), target.to_string());
         println!("Added proxy route: {} -> {}", path, target);
+    }
+    
+    /// Forward a request to a target URL
+    fn forward_request(&self, target: String, path: &str, request: &ApiRequest) -> ApiResponse {
+        use std::io::{BufReader, BufRead};
+        
+        println!("Forwarding request to target: {}{}", target, path);
+        
+        // Extract method from metadata or default to GET
+        let method = request.metadata.get("method").cloned().unwrap_or_else(|| "GET".to_string());
+        
+        // Parse target URL
+        let target_url = if target.ends_with('/') {
+            format!("{}{}", target, path.trim_start_matches('/'))
+        } else {
+            format!("{}{}", target, path)
+        };
+        
+        println!("Target URL: {}", target_url);
+        
+        // Parse the URL to get host, port, and path
+        let url_parts = match url::Url::parse(&target_url) {
+            Ok(url) => url,
+            Err(e) => {
+                eprintln!("Error parsing target URL '{}': {}", target_url, e);
+                return ApiResponse {
+                    data: Box::new(format!("Error parsing target URL: {}", e)),
+                    metadata: HashMap::new(),
+                    status: ResponseStatus::Error,
+                };
+            }
+        };
+        
+        let host = match url_parts.host_str() {
+            Some(h) => h.to_string(),
+            None => {
+                eprintln!("No host in target URL: {}", target_url);
+                return ApiResponse {
+                    data: Box::new("No host in target URL".to_string()),
+                    metadata: HashMap::new(),
+                    status: ResponseStatus::Error,
+                };
+            }
+        };
+        
+        let port = url_parts.port().unwrap_or_else(|| {
+            if url_parts.scheme() == "https" { 443 } else { 80 }
+        });
+        
+        let path_with_query = if let Some(query) = url_parts.query() {
+            format!("{}?{}", url_parts.path(), query)
+        } else {
+            url_parts.path().to_string()
+        };
+        
+        println!("Connecting to {}:{} with path {}", host, port, path_with_query);
+        
+        // Extract request body if present
+        let body = if let Some(body_str) = request.data.downcast_ref::<String>() {
+            // Real implementation would parse the body from the HTTP request
+            // Just using the raw request string for this example
+            body_str.clone()
+        } else {
+            String::new()
+        };
+        
+        // Connect to the target server
+        let target_addr = format!("{}:{}", host, port);
+        let stream = match TcpStream::connect(&target_addr) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Error connecting to target server {}: {}", target_addr, e);
+                return ApiResponse {
+                    data: Box::new(format!("Error connecting to target server: {}", e)),
+                    metadata: HashMap::new(),
+                    status: ResponseStatus::Error,
+                };
+            }
+        };
+        
+        // Set stream to blocking mode for simplicity
+        if let Err(e) = stream.set_nonblocking(false) {
+            eprintln!("Error setting stream to blocking mode: {}", e);
+            return ApiResponse {
+                data: Box::new(format!("Error setting stream to blocking mode: {}", e)),
+                metadata: HashMap::new(),
+                status: ResponseStatus::Error,
+            };
+        }
+        
+        // Create HTTP request
+        let http_request = format!(
+            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            method,
+            path_with_query,
+            host,
+            body.len(),
+            body
+        );
+        
+        println!("Sending request to target server:");
+        println!("{}", http_request);
+        
+        // Send the request
+        if let Err(e) = stream.write_all(http_request.as_bytes()) {
+            eprintln!("Error writing to target server: {}", e);
+            return ApiResponse {
+                data: Box::new(format!("Error writing to target server: {}", e)),
+                metadata: HashMap::new(),
+                status: ResponseStatus::Error,
+            };
+        }
+        
+        // Read the response
+        let mut reader = BufReader::new(&stream);
+        
+        // Read status line
+        let mut status_line = String::new();
+        if let Err(e) = reader.read_line(&mut status_line) {
+            eprintln!("Error reading status line from target server: {}", e);
+            return ApiResponse {
+                data: Box::new(format!("Error reading status line from target server: {}", e)),
+                metadata: HashMap::new(),
+                status: ResponseStatus::Error,
+            };
+        }
+        
+        println!("Received status line: {}", status_line.trim());
+        
+        // Parse status code
+        let status_parts: Vec<&str> = status_line.split_whitespace().collect();
+        let status_code = if status_parts.len() >= 2 {
+            match status_parts[1].parse::<u16>() {
+                Ok(code) => code,
+                Err(_) => {
+                    eprintln!("Invalid status code in response: {}", status_line);
+                    return ApiResponse {
+                        data: Box::new(format!("Invalid status code in response: {}", status_line)),
+                        metadata: HashMap::new(),
+                        status: ResponseStatus::Error,
+                    };
+                }
+            }
+        } else {
+            eprintln!("Invalid status line: {}", status_line);
+            return ApiResponse {
+                data: Box::new(format!("Invalid status line: {}", status_line)),
+                metadata: HashMap::new(),
+                status: ResponseStatus::Error,
+            };
+        };
+        
+        // Read headers
+        let mut headers = HashMap::new();
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) => break, // EOF
+                Ok(_) => {
+                    let line = line.trim();
+                    if line.is_empty() {
+                        break; // End of headers
+                    }
+                    
+                    if let Some(idx) = line.find(':') {
+                        let key = line[..idx].trim().to_lowercase();
+                        let value = line[idx+1..].trim().to_string();
+                        headers.insert(key, value);
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Error reading headers from target server: {}", e);
+                    return ApiResponse {
+                        data: Box::new(format!("Error reading headers from target server: {}", e)),
+                        metadata: HashMap::new(),
+                        status: ResponseStatus::Error,
+                    };
+                }
+            }
+        }
+        
+        println!("Received headers:");
+        for (key, value) in &headers {
+            println!("  {}: {}", key, value);
+        }
+        
+        // Read body
+        let content_length = headers.get("content-length")
+            .and_then(|s| s.parse::<usize>().ok());
+        
+        let mut body = Vec::new();
+        if let Some(length) = content_length {
+            // Read exactly content-length bytes
+            let mut buffer = vec![0; length];
+            match reader.read_exact(&mut buffer) {
+                Ok(_) => body = buffer,
+                Err(e) => {
+                    eprintln!("Error reading body from target server: {}", e);
+                    return ApiResponse {
+                        data: Box::new(format!("Error reading body from target server: {}", e)),
+                        metadata: HashMap::new(),
+                        status: ResponseStatus::Error,
+                    };
+                }
+            }
+        } else {
+            // Read until EOF
+            match reader.read_until(0, &mut body) {
+                Ok(_) => {},
+                Err(e) => {
+                    eprintln!("Error reading body from target server: {}", e);
+                    return ApiResponse {
+                        data: Box::new(format!("Error reading body from target server: {}", e)),
+                        metadata: HashMap::new(),
+                        status: ResponseStatus::Error,
+                    };
+                }
+            }
+        }
+        
+        // Convert the body to a string if possible
+        let body_str = match String::from_utf8(body) {
+            Ok(s) => s,
+            Err(_) => {
+                eprintln!("Body is not valid UTF-8");
+                return ApiResponse {
+                    data: Box::new("Body is not valid UTF-8".to_string()),
+                    metadata: HashMap::new(),
+                    status: ResponseStatus::Error,
+                };
+            }
+        };
+        
+        println!("Received body (first 100 chars): {}", 
+                 if body_str.len() > 100 { &body_str[..100] } else { &body_str });
+        
+        // Determine response status based on HTTP status code
+        let response_status = match status_code {
+            200..=299 => ResponseStatus::Success,
+            404 => ResponseStatus::NotFound,
+            _ => ResponseStatus::Error,
+        };
+        
+        // Convert headers to metadata
+        let metadata: HashMap<String, String> = headers.into_iter().collect();
+        
+        // Create and return API response
+        ApiResponse {
+            data: Box::new(body_str),
+            metadata,
+            status: response_status,
+        }
     }
 }

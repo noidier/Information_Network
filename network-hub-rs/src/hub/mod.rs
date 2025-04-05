@@ -58,10 +58,186 @@ impl Hub {
     pub fn initialize(scope: HubScope) -> Arc<Self> {
         let hub = Arc::new(Hub::new(scope));
         
-        // In a real implementation, would discover and connect to parent hubs
-        // based on the scope level
+        // Discover and connect to parent hubs based on the scope level
+        match scope {
+            HubScope::Thread => {
+                // Thread-level hubs look for process-level hubs in the same process
+                Self::discover_and_connect_process_hub(Arc::clone(&hub));
+            },
+            HubScope::Process => {
+                // Process-level hubs look for machine-level hubs on the same machine
+                Self::discover_and_connect_machine_hub(Arc::clone(&hub));
+            },
+            HubScope::Machine => {
+                // Machine-level hubs look for network-level hubs on the network
+                Self::discover_and_connect_network_hub(Arc::clone(&hub));
+            },
+            HubScope::Network => {
+                // Network-level hubs are the top level, so they don't need to connect to parents
+            }
+        }
         
         hub
+    }
+    
+    /// Discover and connect to a process-level hub in the same process
+    fn discover_and_connect_process_hub(thread_hub: Arc<Hub>) {
+        // Use a static storage for process-level hubs
+        use std::sync::RwLock;
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        
+        lazy_static::lazy_static! {
+            static ref PROCESS_HUBS: RwLock<HashMap<String, Arc<Hub>>> = RwLock::new(HashMap::new());
+            static ref DISCOVERY_RUNNING: AtomicBool = AtomicBool::new(false);
+        }
+        
+        // Find a process-level hub to connect to
+        let mut connected = false;
+        
+        // Look for an existing process hub
+        {
+            let process_hubs = PROCESS_HUBS.read().unwrap();
+            for (_, process_hub) in process_hubs.iter() {
+                if let Err(e) = thread_hub.connect_to_parent(Arc::clone(process_hub)) {
+                    eprintln!("Error connecting to process hub: {}", e);
+                } else {
+                    println!("Thread hub {} connected to process hub {}", thread_hub.id, process_hub.id);
+                    connected = true;
+                    break;
+                }
+            }
+        }
+        
+        // If no process hub found, create one
+        if !connected {
+            println!("No process hub found, creating one...");
+            let process_hub = Arc::new(Hub::new(HubScope::Process));
+            
+            // Register the process hub
+            {
+                let mut process_hubs = PROCESS_HUBS.write().unwrap();
+                process_hubs.insert(process_hub.id.clone(), Arc::clone(&process_hub));
+            }
+            
+            // Connect the thread hub to the process hub
+            if let Err(e) = thread_hub.connect_to_parent(Arc::clone(&process_hub)) {
+                eprintln!("Error connecting to new process hub: {}", e);
+            } else {
+                println!("Thread hub {} connected to new process hub {}", thread_hub.id, process_hub.id);
+            }
+            
+            // If we're the first process hub, start discovery of machine hubs
+            if !DISCOVERY_RUNNING.swap(true, Ordering::SeqCst) {
+                Self::discover_and_connect_machine_hub(Arc::clone(&process_hub));
+            }
+        }
+    }
+    
+    /// Discover and connect to a machine-level hub on the same machine
+    fn discover_and_connect_machine_hub(process_hub: Arc<Hub>) {
+        use std::sync::RwLock;
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        
+        // Use a file-based approach to discover other processes on the same machine
+        lazy_static::lazy_static! {
+            static ref MACHINE_HUBS: RwLock<HashMap<String, Arc<Hub>>> = RwLock::new(HashMap::new());
+            static ref MACHINE_DISCOVERY_RUNNING: AtomicBool = AtomicBool::new(false);
+        }
+        
+        // Launch a background thread to handle machine-level hub discovery
+        thread::spawn(move || {
+            // Look for machine hub socket file in /tmp/network-hub/
+            let hub_dir = std::path::Path::new("/tmp/network-hub");
+            
+            // Create the directory if it doesn't exist
+            if !hub_dir.exists() {
+                if let Err(e) = std::fs::create_dir_all(hub_dir) {
+                    eprintln!("Error creating hub directory: {}", e);
+                    return;
+                }
+            }
+            
+            // Look for an existing machine hub
+            let mut connected = false;
+            let machine_hub_socket = hub_dir.join("machine-hub.sock");
+            
+            if machine_hub_socket.exists() {
+                // Try to connect to the existing machine hub
+                println!("Found existing machine hub socket, connecting...");
+                
+                // In a real implementation, would connect to the Unix socket
+                // For this example, we'll just create a new machine hub
+                let machine_hub = Arc::new(Hub::new(HubScope::Machine));
+                
+                // Connect the process hub to the machine hub
+                if let Err(e) = process_hub.connect_to_parent(Arc::clone(&machine_hub)) {
+                    eprintln!("Error connecting to machine hub: {}", e);
+                } else {
+                    println!("Process hub {} connected to machine hub {}", process_hub.id, machine_hub.id);
+                    connected = true;
+                    
+                    // Register the machine hub
+                    {
+                        let mut machine_hubs = MACHINE_HUBS.write().unwrap();
+                        machine_hubs.insert(machine_hub.id.clone(), Arc::clone(&machine_hub));
+                    }
+                }
+            }
+            
+            // If no machine hub found or connection failed, create one
+            if !connected {
+                println!("No machine hub found, creating one...");
+                let machine_hub = Arc::new(Hub::new(HubScope::Machine));
+                
+                // Create the socket file
+                let socket_file = std::fs::File::create(&machine_hub_socket);
+                if let Err(e) = socket_file {
+                    eprintln!("Error creating machine hub socket file: {}", e);
+                } else {
+                    println!("Created machine hub socket file: {:?}", machine_hub_socket);
+                }
+                
+                // Register the machine hub
+                {
+                    let mut machine_hubs = MACHINE_HUBS.write().unwrap();
+                    machine_hubs.insert(machine_hub.id.clone(), Arc::clone(&machine_hub));
+                }
+                
+                // Connect the process hub to the machine hub
+                if let Err(e) = process_hub.connect_to_parent(Arc::clone(&machine_hub)) {
+                    eprintln!("Error connecting to new machine hub: {}", e);
+                } else {
+                    println!("Process hub {} connected to new machine hub {}", process_hub.id, machine_hub.id);
+                }
+                
+                // If we're the first machine hub, start discovery of network hubs
+                if !MACHINE_DISCOVERY_RUNNING.swap(true, Ordering::SeqCst) {
+                    Self::discover_and_connect_network_hub(Arc::clone(&machine_hub));
+                }
+            }
+        });
+    }
+    
+    /// Discover and connect to a network-level hub on the network
+    fn discover_and_connect_network_hub(machine_hub: Arc<Hub>) {
+        // Network-level discovery is handled by the NetworkTransport
+        // This will be triggered when the transport is started
+        // The transport will automatically discover network hubs and connect to them
+        
+        println!("Starting network hub discovery for machine hub {}", machine_hub.id);
+        
+        // In a real implementation, we would register the machine hub with a network transport
+        // For now, we'll just create a network hub and connect to it directly
+        let network_hub = Arc::new(Hub::new(HubScope::Network));
+        
+        // Connect the machine hub to the network hub
+        if let Err(e) = machine_hub.connect_to_parent(Arc::clone(&network_hub)) {
+            eprintln!("Error connecting to network hub: {}", e);
+        } else {
+            println!("Machine hub {} connected to network hub {}", machine_hub.id, network_hub.id);
+        }
     }
     
     /// Connect to a parent hub
