@@ -11,6 +11,7 @@ pub use network_peer::NetworkPeer;
 use crate::error::{HubError, Result};
 use crate::hub::{Hub, ApiRequest, ApiResponse, Message};
 use crate::utils::current_time_millis;
+use crate::HubScope;
 
 use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream, SocketAddr};
@@ -129,7 +130,7 @@ impl NetworkTransport {
             
             // Start listener thread
             let listen_peers = Arc::clone(&peers);
-            let listen_tls_config = tls_config.clone();
+            let _listen_tls_config = tls_config.clone();
             let listen_self_transport = self_transport.clone();
             
             thread::spawn(move || {
@@ -137,7 +138,7 @@ impl NetworkTransport {
                 
                 loop {
                     match listen_socket.recv_from(&mut buf) {
-                        Ok((size, sender)) => {
+                        Ok((size, _sender)) => {
                             // Process discovery message
                             if size >= 3 && buf[0] == b'H' && buf[1] == b'U' && buf[2] == b'B' {
                                 // Valid discovery message, extract info
@@ -339,11 +340,12 @@ impl NetworkTransport {
         
         // Clone necessary data for the thread
         let self_clone = self.clone();
-        let peer_id = peer_id.to_string();
+        let peer_id_for_thread = peer_id.to_string();
+        let peer_id_for_error = peer_id.to_string();
         
         // Spawn a thread to make the request
         thread::spawn(move || {
-            match self_clone.send_request_to_peer(&peer_id, request) {
+            match self_clone.send_request_to_peer(&peer_id_for_thread, request) {
                 Ok(response) => {
                     let _ = tx.send(Ok(response));
                 },
@@ -356,7 +358,7 @@ impl NetworkTransport {
         // Wait for response or timeout
         match rx.recv_timeout(timeout) {
             Ok(result) => result,
-            Err(_) => Err(HubError::Network(format!("Request to peer {} timed out after {:?}", peer_id, timeout))),
+            Err(_) => Err(HubError::Network(format!("Request to peer {} timed out after {:?}", peer_id_for_error, timeout))),
         }
     }
 }

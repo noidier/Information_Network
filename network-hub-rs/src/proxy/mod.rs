@@ -9,6 +9,7 @@ use crate::hub::{Hub, ApiRequest, ApiResponse, ResponseStatus};
 use crate::transport::{TlsConfig, create_server_tls_stream};
 
 /// HTTP reverse proxy using the hub
+#[derive(Clone)]
 pub struct HttpReverseProxy {
     /// The hub this proxy is connected to
     hub: Arc<Hub>,
@@ -100,6 +101,10 @@ impl HttpReverseProxy {
         
         // Register a wildcard API for handling all HTTP requests
         let route_map = Arc::clone(&self.route_map);
+        let _hub = Arc::clone(&self.hub);
+        
+        // Move a clone of self into the closure to avoid the lifetime issue
+        let this = self.clone();
         
         let http_handler = move |request: &ApiRequest| {
             // Extract the path from the request
@@ -178,7 +183,7 @@ impl HttpReverseProxy {
                 println!("Found target: {}", target);
                 
                 // Forward the request to the target
-                return self.forward_request(target, &actual_path, request);
+                return this.forward_request(target, &actual_path, request);
             }
             
             println!("No proxy target found for {}", actual_path);
@@ -396,7 +401,7 @@ impl HttpReverseProxy {
         
         // Connect to the target server
         let target_addr = format!("{}:{}", host, port);
-        let stream = match TcpStream::connect(&target_addr) {
+        let mut stream = match TcpStream::connect(&target_addr) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("Error connecting to target server {}: {}", target_addr, e);

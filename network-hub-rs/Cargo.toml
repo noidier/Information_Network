@@ -35,6 +35,8 @@ url = "2.3"
 [dev-dependencies]
 tempfile = "3.6"
 criterion = "0.5"
+test-case = "3.3.1"
+test-context = "0.4.1"
 
 [lib]
 name = "network_hub"

@@ -46,16 +46,18 @@ fn test_network_hubs_tls() {
     let addr1 = SocketAddr::from_str("127.0.0.1:9001").unwrap();
     let addr2 = SocketAddr::from_str("127.0.0.1:9002").unwrap();
     
-    let transport1 = NetworkTransport::new(Arc::clone(&hub1), addr1, tls_config.clone());
-    let transport2 = NetworkTransport::new(Arc::clone(&hub2), addr2, tls_config.clone());
+    let transport1 = Arc::new(NetworkTransport::new(Arc::clone(&hub1), addr1, tls_config.clone()));
+    let transport2 = Arc::new(NetworkTransport::new(Arc::clone(&hub2), addr2, tls_config.clone()));
     
     // Start the transports in separate threads
-    let transport1_thread = thread::spawn(move || {
-        transport1.start().unwrap();
+    let transport1_clone = Arc::clone(&transport1);
+    let _transport1_thread = thread::spawn(move || {
+        transport1_clone.start().unwrap();
     });
     
-    let transport2_thread = thread::spawn(move || {
-        transport2.start().unwrap();
+    let transport2_clone = Arc::clone(&transport2);
+    let _transport2_thread = thread::spawn(move || {
+        transport2_clone.start().unwrap();
     });
     
     // Give transports time to start
@@ -132,16 +134,18 @@ fn test_network_hub_timeouts() {
     let addr1 = SocketAddr::from_str("127.0.0.1:9003").unwrap();
     let addr2 = SocketAddr::from_str("127.0.0.1:9004").unwrap();
     
-    let transport1 = NetworkTransport::new(Arc::clone(&hub1), addr1, tls_config.clone());
-    let transport2 = NetworkTransport::new(Arc::clone(&hub2), addr2, tls_config.clone());
+    let transport1 = Arc::new(NetworkTransport::new(Arc::clone(&hub1), addr1, tls_config.clone()));
+    let transport2 = Arc::new(NetworkTransport::new(Arc::clone(&hub2), addr2, tls_config.clone()));
     
     // Start the transports in separate threads
-    let transport1_thread = thread::spawn(move || {
-        transport1.start().unwrap();
+    let transport1_clone = Arc::clone(&transport1);
+    let _transport1_thread = thread::spawn(move || {
+        transport1_clone.start().unwrap();
     });
     
-    let transport2_thread = thread::spawn(move || {
-        transport2.start().unwrap();
+    let transport2_clone = Arc::clone(&transport2);
+    let _transport2_thread = thread::spawn(move || {
+        transport2_clone.start().unwrap();
     });
     
     // Give transports time to start
@@ -263,17 +267,20 @@ fn test_multi_network_hub_concurrent() {
     }, HashMap::new());
     
     // Register forwarding API on hub2 that forwards to hub1
+    // Create a clone of hub1 to use inside the closure
+    let hub1_for_forwarding = Arc::clone(&hub1);
+    
     hub2.register_api("/forward/to/hub1", move |request: &ApiRequest| {
         // In a real implementation, would use the network transport to forward
         // For test purposes, just create a direct call
         let request_to_hub1 = ApiRequest {
             path: "/hub1/api".to_string(),
-            data: request.data.clone(),
+            data: Box::new(()),  // Use empty data instead of trying to clone
             metadata: request.metadata.clone(),
             sender_id: "hub2".to_string(),
         };
         
-        let response = hub1.handle_request(request_to_hub1);
+        let response = hub1_for_forwarding.handle_request(request_to_hub1);
         
         // Add forwarding info
         let mut metadata = response.metadata.clone();
@@ -307,21 +314,24 @@ fn test_multi_network_hub_concurrent() {
     let addr2 = SocketAddr::from_str("127.0.0.1:9006").unwrap();
     let addr3 = SocketAddr::from_str("127.0.0.1:9007").unwrap();
     
-    let transport1 = NetworkTransport::new(Arc::clone(&hub1), addr1, tls_config.clone());
-    let transport2 = NetworkTransport::new(Arc::clone(&hub2), addr2, tls_config.clone());
-    let transport3 = NetworkTransport::new(Arc::clone(&hub3), addr3, tls_config.clone());
+    let transport1 = Arc::new(NetworkTransport::new(Arc::clone(&hub1), addr1, tls_config.clone()));
+    let transport2 = Arc::new(NetworkTransport::new(Arc::clone(&hub2), addr2, tls_config.clone()));
+    let transport3 = Arc::new(NetworkTransport::new(Arc::clone(&hub3), addr3, tls_config.clone()));
     
     // Start the transports in separate threads
-    let transport1_thread = thread::spawn(move || {
-        transport1.start().unwrap();
+    let transport1_clone = Arc::clone(&transport1);
+    let _transport1_thread = thread::spawn(move || {
+        transport1_clone.start().unwrap();
     });
     
-    let transport2_thread = thread::spawn(move || {
-        transport2.start().unwrap();
+    let transport2_clone = Arc::clone(&transport2);
+    let _transport2_thread = thread::spawn(move || {
+        transport2_clone.start().unwrap();
     });
     
-    let transport3_thread = thread::spawn(move || {
-        transport3.start().unwrap();
+    let transport3_clone = Arc::clone(&transport3);
+    let _transport3_thread = thread::spawn(move || {
+        transport3_clone.start().unwrap();
     });
     
     // Give transports time to start
@@ -335,7 +345,7 @@ fn test_multi_network_hub_concurrent() {
     
     // Perform concurrent requests from hub3 to hub2 and hub1
     let handles = (0..10).map(|i| {
-        let hub3 = Arc::clone(&hub3);
+        let _hub3 = Arc::clone(&hub3);
         let hub2 = Arc::clone(&hub2);
         let hub1 = Arc::clone(&hub1);
         

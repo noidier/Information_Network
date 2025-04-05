@@ -136,7 +136,7 @@ fn create_client_config(config: &TlsConfig) -> Result<ClientConfig> {
     let client_config = ClientConfig::builder()
         .with_safe_defaults()
         .with_root_certificates(root_store)
-        .with_single_cert(certs, keys.remove(0))
+        .with_client_auth_cert(certs, keys.remove(0))
         .map_err(|e| HubError::Tls(format!("Failed to create client config: {}", e)))?;
     
     Ok(client_config)
@@ -153,7 +153,7 @@ pub fn create_server_tls_stream(stream: TcpStream, config: &TlsConfig) -> Result
     let tls_stream = rustls::StreamOwned::new(acceptor, stream);
     
     // Convert to our TlsStream type
-    struct ServerTlsStream<T> {
+    struct ServerTlsStream<T: Read + Write + Send + Sync> {
         stream: rustls::StreamOwned<rustls::ServerConnection, T>,
     }
     
@@ -199,7 +199,7 @@ pub fn create_client_tls_stream(stream: TcpStream, config: &TlsConfig) -> Result
     let tls_stream = rustls::StreamOwned::new(connector, stream);
     
     // Convert to our TlsStream type
-    struct ClientTlsStream<T> {
+    struct ClientTlsStream<T: Read + Write + Send + Sync> {
         stream: rustls::StreamOwned<rustls::ClientConnection, T>,
     }
     

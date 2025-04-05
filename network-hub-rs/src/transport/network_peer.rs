@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::sync::Mutex;
+use std::sync::{Mutex, Arc};
 use std::io::{Read, Write};
 
 use crate::error::{HubError, Result};
