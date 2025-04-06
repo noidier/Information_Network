@@ -1,0 +1,23 @@
+[package]
+name = "network-hub-web-app"
+version = "0.1.0"
+edition = "2021"
+authors = ["Claude"]
+description = "Web interface for network-hub-rs functionality"
+
+[dependencies]
+network-hub-rs = { path = "../network-hub-rs" }
+tokio = { version = "1", features = ["full"] }
+axum = "0.6.20"
+tower-http = { version = "0.4.4", features = ["cors", "trace"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+uuid = { version = "1.4", features = ["v4", "serde"] }
+thiserror = "1.0"
+anyhow = "1.0"
+clap = { version = "4.3", features = ["derive"] }
+rust-embed = "6.8.1"
+mime_guess = "2.0.4"
+tower = "0.4"

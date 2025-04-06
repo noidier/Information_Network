@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Hub Web Interface</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+    <header>
+        <h1>Network Hub Web Interface</h1>
+    </header>
+    
+    <div class="container">
+        <div class="sidebar">
+            <nav>
+                <ul>
+                    <li><a href="#" data-section="dashboard">Dashboard</a></li>
+                    <li><a href="#" data-section="routes">Proxy Routes</a></li>
+                    <li><a href="#" data-section="apis">API Endpoints</a></li>
+                    <li><a href="#" data-section="requests">API Tester</a></li>
+                </ul>
+            </nav>
+        </div>
+        
+        <main>
+            <section id="dashboard" class="content-section active">
+                <h2>Dashboard</h2>
+                <div class="stats-container">
+                    <div class="stat-card">
+                        <h3>Hub Scope</h3>
+                        <p id="hub-scope">Loading...</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Registered APIs</h3>
+                        <p id="api-count">Loading...</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Interceptors</h3>
+                        <p id="interceptor-count">Loading...</p>
+                    </div>
+                </div>
+            </section>
+            
+            <section id="routes" class="content-section">
+                <h2>Proxy Routes</h2>
+                <div class="card">
+                    <h3>Add New Route</h3>
+                    <form id="route-form">
+                        <div class="form-group">
+                            <label for="route-path">Path:</label>
+                            <input type="text" id="route-path" name="path" placeholder="/api/example" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="route-target">Target URL:</label>
+                            <input type="text" id="route-target" name="target" placeholder="http://target-service:8080" required>
+                        </div>
+                        <button type="submit">Add Route</button>
+                    </form>
+                </div>
+                
+                <div class="card">
+                    <h3>Existing Routes</h3>
+                    <table id="routes-table">
+                        <thead>
+                            <tr>
+                                <th>Path</th>
+                                <th>Target</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Routes will be populated here -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            
+            <section id="apis" class="content-section">
+                <h2>API Endpoints</h2>
+                <div class="card">
+                    <h3>Register New API</h3>
+                    <form id="api-form">
+                        <div class="form-group">
+                            <label for="api-path">API Path:</label>
+                            <input type="text" id="api-path" name="path" placeholder="/my/api" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="api-response">Response Data:</label>
+                            <textarea id="api-response" name="response_data" placeholder='{"message": "Hello, world!"}' required></textarea>
+                        </div>
+                        <button type="submit">Register API</button>
+                    </form>
+                </div>
+                
+                <div class="card">
+                    <h3>Registered APIs</h3>
+                    <table id="apis-table">
+                        <thead>
+                            <tr>
+                                <th>Path</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- APIs will be populated here -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            
+            <section id="requests" class="content-section">
+                <h2>API Tester</h2>
+                <div class="card">
+                    <h3>Send API Request</h3>
+                    <form id="request-form">
+                        <div class="form-group">
+                            <label for="request-path">API Path:</label>
+                            <input type="text" id="request-path" name="path" placeholder="/my/api" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="request-data">Request Data:</label>
+                            <textarea id="request-data" name="data" placeholder='{"key": "value"}'></textarea>
+                        </div>
+                        <button type="submit">Send Request</button>
+                    </form>
+                </div>
+                
+                <div class="card">
+                    <h3>Response</h3>
+                    <pre id="response-output">No request sent yet</pre>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <script src="/assets/main.js"></script>
+</body>
+</html>
